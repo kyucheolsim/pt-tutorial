@@ -17,7 +17,7 @@ g_log_steps = 100
 # feature count
 #g_vocab_size = 100
 # feature size
-g_embed_size = 61
+g_embed_size = 60
 g_hidden_size = 100
 g_output_size = 3
 
@@ -30,7 +30,10 @@ g_batchnorm = True
 g_batchnorm_input = False
 g_learning_rate = 0.0001
 g_max_grad_norm = 0
-model_path = "seq_model.pt"
+g_accuracy = 0.522
+#model_path = "seq_model_0.49.pt"
+model_path = "seq_model_s%s_e%s_l%s_h%s_b%d_%.3f.pt" % (g_seq_ext, g_embed_size, g_num_layers, g_hidden_size, g_bidirectional, g_accuracy)
+print("model_path:", model_path)
 
 device = torch.device('cuda' if torch.cuda.is_available() else 'cpu') 
 print("\n* device: ", device)
@@ -68,11 +71,12 @@ def get_equal_set(label_list, sidx_list):
 	return label_list, sidx_list
 
 # sequence data sets: code info features _EOS_ code info features
-def load_pred_data(data_path, seq_ext=10, eos="_EOS_"):
+def load_pred_data(data_path, seq_ext=10, feat_size=0, eos="_EOS_"):
 	if seq_ext > 1:
 		rm_from_idx = -(seq_ext-1)
 	else:
 		rm_from_idx = None 
+	last_idx = 0
 	# seq: start_idx == label_list
 	sidx_list, label_list, feats_list = [], [], []
 	with open(data_path, "r") as fin:
@@ -93,7 +97,10 @@ def load_pred_data(data_path, seq_ext=10, eos="_EOS_"):
 			code = tokens[0]
 			info = tokens[1]
 			label = "%s\t%s" % (code, info)
-			feats = [float(f) for f in tokens[2:]]
+			if feat_size > 0:
+				feats = [float(f) for f in tokens[2:feat_size+2]]
+			else:
+				feats = [float(f) for f in tokens[2:]]
 			label_list.append(label)
 			feats_list.append(feats)
 			sidx_list.append(idx)
@@ -224,24 +231,12 @@ class LSTMClassifier(nn.Module):
 		return hidden.to(device), cell.to(device)
 
 
-model = LSTMClassifier(g_embed_size, g_hidden_size, g_output_size, g_num_layers, g_seq_ext,
-		g_batch_first, g_bidirectional, g_dropout_p, g_batchnorm, g_batchnorm_input).to(device)
-checkpoint = torch.load(model_path, map_location=device)
-model.load_state_dict(checkpoint['model_state_dic'])
-print(checkpoint["best_acc"].item())
-
-num_params = 0
-for params in model.parameters():
-	num_params += params.view(-1).size(0)
-print("\n# of parameters: {}".format(num_params))
-
-sidx_list, label_list, feats_list = load_pred_data("./pred_set.txt", seq_ext=g_seq_ext)
+sidx_list, label_list, feats_list = load_pred_data("./pred_set.txt", seq_ext=g_seq_ext, feat_size=g_embed_size)
 print("count(idx, label, feats):", len(sidx_list), len(label_list), len(feats_list))
 pred_embedding = torch.tensor(feats_list, requires_grad=False).to(device)
-print("* embed_size:", pred_embedding.size(1))
+print("* feat_embed_size:", pred_embedding.size(1))
 g_embed_size = len(feats_list[0])
-print(sidx_list)
-print(label_list)
+
 pred_x = []
 for i in sidx_list:
 	seq_data = get_seq_list(i, seq_ext=g_seq_ext, tensor=False, reverse=True)
@@ -253,6 +248,20 @@ pred_x = torch.tensor(pred_x)
 pred_set = TensorDataset(pred_x)
 pred_loader = DataLoader(pred_set, batch_size=1, shuffle=False)
 data_size = len(pred_loader.dataset)
+
+
+model = LSTMClassifier(g_embed_size, g_hidden_size, g_output_size, g_num_layers, g_seq_ext,
+		g_batch_first, g_bidirectional, g_dropout_p, g_batchnorm, g_batchnorm_input).to(device)
+checkpoint = torch.load(model_path, map_location=device)
+model.load_state_dict(checkpoint['model_state_dic'])
+print(checkpoint["best_acc"].item())
+
+num_params = 0
+for params in model.parameters():
+	num_params += params.view(-1).size(0)
+print("\n# of parameters: {}".format(num_params))
+
+
 model.eval()
 with torch.no_grad():
 	for i, x in enumerate(pred_loader):
@@ -260,7 +269,7 @@ with torch.no_grad():
 		embed = pred_embedding[x].to(device)
 		output = model(embed)
 		output_sm = output.softmax(-1).data.cpu().numpy()[0]
-		print(output_sm)
+		#print(output_sm)
 		_, pred = torch.max(output, dim=1)
 		print(label_list[i], pred.item(), output_sm[pred.item()], sep="\t")
 

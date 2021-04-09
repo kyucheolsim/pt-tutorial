@@ -10,14 +10,14 @@ from torch.utils.data import TensorDataset, DataLoader
 from tqdm import tqdm
 
 g_batch_size = 16
-g_epochs = 10
+g_epochs = 50
 g_seq_ext = 30
 g_log_steps = 100
 
 # feature count
 #g_vocab_size = 100
 # feature size
-g_embed_size = 61
+g_embed_size = 60
 g_hidden_size = 100
 g_output_size = 3
 
@@ -26,11 +26,12 @@ g_num_layers = 2
 g_dropout_p = 0.0
 g_batch_first = True
 g_bidirectional = False
-g_batchnorm = True
 g_batchnorm_input = False
+g_batchnorm = True
 g_learning_rate = 0.0001
 g_max_grad_norm = 0
-model_path = "seq_model.pt"
+model_path = "seq_model_s%s_e%s_l%s_h%s_b%d.pt" % (g_seq_ext, g_embed_size, g_num_layers, g_hidden_size, g_bidirectional)
+print("model_path:", model_path)
 
 device = torch.device('cuda' if torch.cuda.is_available() else 'cpu') 
 print("\n* device: ", device)
@@ -69,11 +70,12 @@ def get_equal_set(label_list, sidx_list):
 
 
 # sequence data sets: label features _EOS_ label features
-def load_seq_data(data_path, seq_ext=10, eos="_EOS_"):
+def load_seq_data(data_path, seq_ext=10, feat_size=0, eos="_EOS_"):
 	if seq_ext > 1:
 		rm_from_idx = -(seq_ext-1)
 	else:
 		rm_from_idx = None
+	last_idx = 0
 	# seq: start_idx == label_list
 	sidx_list, label_list, feats_list = [], [], []
 	with open(data_path, "r") as fin:
@@ -92,7 +94,10 @@ def load_seq_data(data_path, seq_ext=10, eos="_EOS_"):
 				continue
 			tokens = line.split("\t")
 			label = int(tokens[0])
-			feats = [float(f) for f in tokens[1:]]
+			if feat_size > 0:
+				feats = [float(f) for f in tokens[1:feat_size+1]]
+			else:
+				feats = [float(f) for f in tokens[1:]]
 			label_list.append(label)
 			feats_list.append(feats)
 			sidx_list.append(idx)
@@ -104,9 +109,9 @@ def load_seq_data(data_path, seq_ext=10, eos="_EOS_"):
 				del(sidx_list[rm_from_idx:])
 				del(label_list[rm_from_idx:])
 		#print("idx:", last_idx, idx, len(sidx_list))
-	print("raw count:", len(label_list), len(sidx_list))
+	print("raw label count:", len(label_list))
 	label_list, sidx_list = get_equal_set(label_list, sidx_list)
-	print("equ count:", len(label_list), len(sidx_list))
+	print("equ label count:", len(label_list))
 	return sidx_list, label_list, feats_list
 
 
@@ -123,12 +128,12 @@ def get_seq_list(start_idx, seq_ext=10, tensor=False, reverse=True):
 			return range(start_idx, start_idx+seq_ext, 1)
 
 ### train set
-sidx_list, label_list, feats_list = load_seq_data("./train_set.txt", seq_ext=g_seq_ext)
+sidx_list, label_list, feats_list = load_seq_data("./train_set.txt", seq_ext=g_seq_ext, feat_size=g_embed_size)
 print("count(idx, label, feats):", len(sidx_list), len(label_list), len(feats_list))
 train_embedding = torch.tensor(feats_list, requires_grad=False).to(device)
-print("* embed_size:", train_embedding.size(1))
+print("* train_embed_size:", train_embedding.size(1))
 g_embed_size = len(feats_list[0])
-print("embed_size:", g_embed_size)
+print("train_embed_size:", g_embed_size)
 
 train_x = []
 for i in sidx_list:
@@ -142,8 +147,9 @@ print("* train_size:", train_x.size())
 #print("idx_0:", train_x[torch.tensor(0)])
 
 ### valid set
-sidx_list, label_list, feats_list = load_seq_data("./valid_set.txt", seq_ext=g_seq_ext)
+sidx_list, label_list, feats_list = load_seq_data("./valid_set.txt", seq_ext=g_seq_ext, feat_size=g_embed_size)
 valid_embedding = torch.tensor(feats_list, requires_grad=False).to(device)
+print("* valid_embed_size:", valid_embedding.size(1))
 
 valid_x = []
 for i in sidx_list:
@@ -293,7 +299,7 @@ for e in range(g_epochs):
 		optimizer.step()
 		train_acc += calc_accuracy(output, label)
 		if i % g_log_steps == 0:
-			print("train_epoch {} ({:05.2f}%), loss: {:.6f}, accurcy: {:6f}".format(e + 1, (100.* i * train_loader.batch_size)/train_size, loss.item(), train_acc/(i + 1)))
+			print("- train e:{} ({:05.2f}%), loss: {:.6f}, accurcy: {:6f}".format(e + 1, (100.* i * train_loader.batch_size)/train_size, loss.item(), train_acc/(i + 1)))
 
 	mc_correct, mc_total = init_mc_correct(g_output_size)
 	model.eval()
@@ -307,10 +313,10 @@ for e in range(g_epochs):
 			valid_correct += calc_accuracy(output, label, correct_count=True)
 			mc_correct, mc_total = get_mc_correct(mc_correct, mc_total, output, label, predict=True)
 		valid_acc = valid_correct/valid_size
-		print("* valid_epoch {}, accuracy: {:.6f}".format(e + 1, valid_acc))
-		print(list(zip(mc_correct, mc_total)))
+		print("* valid e:{}, accuracy: {:.6f}".format(e + 1, valid_acc))
 		print(list(map(lambda x:round(x, 3), np.array(mc_correct)/np.array(mc_total))))
 		if valid_acc > best_acc:
+			print(list(zip(mc_correct, mc_total)))
 			best_acc = valid_acc
 			torch.save({"best_acc": best_acc, "model_state_dic": model.state_dict()}, model_path)
 		print("* best_acc: {:.6f}".format(best_acc))
