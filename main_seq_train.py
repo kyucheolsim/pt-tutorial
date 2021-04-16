@@ -9,28 +9,29 @@ import torch.optim as optim
 from torch.utils.data import TensorDataset, DataLoader
 from tqdm import tqdm
 
-g_batch_size = 16
-g_epochs = 50
+g_batch_size = 32
+g_epochs = 70
 g_seq_ext = 30
 g_log_steps = 100
 
 # feature count
 #g_vocab_size = 100
 # feature size
-g_embed_size = 60
-g_hidden_size = 100
+g_embed_size = 30
+g_hidden_size = 90
 g_output_size = 3
 
 # num_layers must be larger than or equal to 2, to use dropout in rnn
 g_num_layers = 2
-g_dropout_p = 0.0
+g_dropout_p = 0.5
+g_bias = False
 g_batch_first = True
-g_bidirectional = False
+g_bidirectional = True
 g_batchnorm_input = False
 g_batchnorm = True
 g_learning_rate = 0.0001
 g_max_grad_norm = 0
-model_path = "seq_model_s%s_e%s_l%s_h%s_b%d.pt" % (g_seq_ext, g_embed_size, g_num_layers, g_hidden_size, g_bidirectional)
+model_path = "seq_model_s%s_e%s_l%s_h%s_b%d_B%d_v0414.pt" % (g_seq_ext, g_embed_size, g_num_layers, g_hidden_size, g_bidirectional, g_bias)
 print("model_path:", model_path)
 
 device = torch.device('cuda' if torch.cuda.is_available() else 'cpu') 
@@ -169,7 +170,7 @@ valid_loader = DataLoader(valid_set, batch_size=g_batch_size, shuffle=False)
 
 class LSTMClassifier(nn.Module):
 	def __init__(self, embed_size, hidden_size, output_size, num_layers = 3, seq_ext = 30,
-		 batch_first = True, bidirectional = True, dropout_p = 0.0, batchnorm = True, batchnorm_input = True):
+		 batch_first = True, bidirectional = True, dropout_p = 0.0, batchnorm = True, batchnorm_input = True, bias=True):
 		super(LSTMClassifier, self).__init__()
 		self.embed_size = embed_size
 		self.hidden_size = hidden_size
@@ -184,7 +185,7 @@ class LSTMClassifier(nn.Module):
 		self.rnn = nn.LSTM(input_size = embed_size,
 							 hidden_size = hidden_size,
 							 num_layers = num_layers,
-							 bias = True,
+							 bias = bias,
 							 batch_first = batch_first,
 							 dropout = dropout_p,
 							 bidirectional = bidirectional)
@@ -210,13 +211,13 @@ class LSTMClassifier(nn.Module):
 
 	def forward(self, x):
 		if self.batchnorm_input:
-			embeded = self.batchnorm_input(x)
+			embedded = self.batchnorm_input(x)
 		else:
-			embeded = x
+			embedded = x
 		hidden, cell = self.init_hiddens(x.size(0), device = x.device)
 		### output = (batch_size, seq_len, hidden_size * bidirection)
 		### hidden = (num_layers * bidirection, batch_size, hidden_size)
-		rnn_output, (hidden, cell) = self.rnn(embeded, (hidden, cell))
+		rnn_output, (hidden, cell) = self.rnn(embedded, (hidden, cell))
 		#last_hidden = torch.cat([rnn_output[:, -1, : -self.hidden_size], rnn_output[ :, 0, -self.hidden_size : ]], dim = 1)
 		last_hidden = torch.cat([h for h in hidden[-self.num_directions : ]], dim = 1)
 
@@ -226,7 +227,6 @@ class LSTMClassifier(nn.Module):
 
 		if self.dropout_p > 0.0:
 			last_hidden = self.dropout(last_hidden)
-
 
 		# fully connected network
 		last_hidden = self.relu(self.linear(last_hidden))
@@ -271,7 +271,7 @@ def get_mc_correct(class_correct, class_total, preds, labels, predict=False):
 
 
 model = LSTMClassifier(g_embed_size, g_hidden_size, g_output_size, g_num_layers, g_seq_ext,
-		g_batch_first, g_bidirectional, g_dropout_p, g_batchnorm, g_batchnorm_input).to(device)
+		g_batch_first, g_bidirectional, g_dropout_p, g_batchnorm, g_batchnorm_input, g_bias).to(device)
 
 #print(model)
 num_params = 0
@@ -299,7 +299,7 @@ for e in range(g_epochs):
 		optimizer.step()
 		train_acc += calc_accuracy(output, label)
 		if i % g_log_steps == 0:
-			print("- train e:{} ({:05.2f}%), loss: {:.6f}, accurcy: {:6f}".format(e + 1, (100.* i * train_loader.batch_size)/train_size, loss.item(), train_acc/(i + 1)))
+			print("- train e:{} ({:05.2f}%), loss: {:.5f}, accurcy: {:.5f}".format(e + 1, (100.* i * train_loader.batch_size)/train_size, loss.item(), train_acc/(i + 1)))
 
 	mc_correct, mc_total = init_mc_correct(g_output_size)
 	model.eval()
@@ -313,10 +313,10 @@ for e in range(g_epochs):
 			valid_correct += calc_accuracy(output, label, correct_count=True)
 			mc_correct, mc_total = get_mc_correct(mc_correct, mc_total, output, label, predict=True)
 		valid_acc = valid_correct/valid_size
-		print("* valid e:{}, accuracy: {:.6f}".format(e + 1, valid_acc))
-		print(list(map(lambda x:round(x, 3), np.array(mc_correct)/np.array(mc_total))))
+		print("* valid_acc: {:.5f}".format(valid_acc))
+		print("-", list(map(lambda x:round(x, 3), np.array(mc_correct)/np.array(mc_total))))
 		if valid_acc > best_acc:
 			print(list(zip(mc_correct, mc_total)))
 			best_acc = valid_acc
 			torch.save({"best_acc": best_acc, "model_state_dic": model.state_dict()}, model_path)
-		print("* best_acc: {:.6f}".format(best_acc))
+		print("* best_acc: {:.5f}".format(best_acc))
