@@ -1,5 +1,6 @@
 import sys
 import random
+import argparse
 import numpy as np
 
 import torch
@@ -8,19 +9,36 @@ import torch.nn.functional as F
 import torch.optim as optim
 
 from torch.utils.data import TensorDataset, DataLoader
-from tqdm import tqdm
+#from tqdm import tqdm
+
+PARAM = None
+parser = argparse.ArgumentParser()
+parser.add_argument(
+'--action', type=str,
+default='', help=''
+)
+PARAM = parser.parse_args()
+
+if PARAM.action == "long":
+	LONG_MODEL = True
+else:
+	LONG_MODEL = False
 
 g_batch_size = 32
 g_epochs = 100
 g_log_steps = 100
 
 ### input sequence length
-#g_seq_ext = 30 # short
-g_seq_ext = 40 # long
+if LONG_MODEL:
+	g_seq_ext = 40 # long
+else:
+	g_seq_ext = 30 # short
 
 ### feature size
-#g_embed_size = 35 # short
-g_embed_size = 45 # long
+if LONG_MODEL:
+	g_embed_size = 45 # long (embed + sise 5)
+else:
+	g_embed_size = 35 # short (embed + sise 5)
 g_conv_size = 60
 g_kernel_sizes = [3,4,5]
 g_output_size = 3
@@ -28,14 +46,20 @@ g_output_size = 3
 # num_layers must be larger than or equal to 2, to use dropout in rnn
 g_dropout_p = 0.1
 g_batchnorm = True
+g_bias = True
 g_learning_rate = 0.0001
 g_max_grad_norm = 0
 
-model_path = "seq_model_0.49.pt"
-print("model_path:", model_path)
+if LONG_MODEL:
+	model_path = "./model/pred5/seq_cnn5_s40_e45_h60_B1_v0419_0.6198.pt"
+	pred_path = "./pred_set/pred_set_long.txt"
+else:
+	model_path = "./model/pred3/seq_cnn3_s30_e35_h60_B1_v0419_0.5516.pt"
+	pred_path = "./pred_set/pred_set_short.txt"
+print("# model_path:", model_path)
 
 device = torch.device('cuda' if torch.cuda.is_available() else 'cpu') 
-print("\n* device: ", device)
+print("# device: ", device)
 
 def get_min_label_count(label_list):
 	min_lc = 0
@@ -54,8 +78,8 @@ def get_min_label_count(label_list):
 def get_equal_set(label_list, sidx_list):
 	min_lc, label_dic = get_min_label_count(label_list)
 	check_list = [min_lc] * len(label_dic)
-	print("min_lc:", min_lc)
-	print("check_list:", check_list)
+	print("# min_lc:", min_lc)
+	print("# check_list:", check_list)
 	li_pair = list(zip(label_list, sidx_list))
 	random.seed(23)
 	random.shuffle(li_pair)
@@ -111,7 +135,7 @@ def load_pred_data(data_path, seq_ext=10, feat_size=0, eos="_EOS_"):
 				del(sidx_list[rm_from_idx:])
 				del(label_list[rm_from_idx:])
 		#print("idx:", last_idx, idx, len(sidx_list))
-	print("raw count:", len(label_list), len(sidx_list))
+	print("# raw count:", len(label_list), len(sidx_list))
 	#label_list, sidx_list = get_equal_set(label_list, sidx_list)
 	#print("equ count:", len(label_list), len(sidx_list))
 	return sidx_list, label_list, feats_list
@@ -213,10 +237,10 @@ class CNN2(nn.Module):
 		return output
 
 
-sidx_list, label_list, feats_list = load_pred_data("./pred_set.txt", seq_ext=g_seq_ext, feat_size=g_embed_size)
-print("count(idx, label, feats):", len(sidx_list), len(label_list), len(feats_list))
+sidx_list, label_list, feats_list = load_pred_data(pred_path, seq_ext=g_seq_ext, feat_size=g_embed_size)
+print("# count(idx, label, feats):", len(sidx_list), len(label_list), len(feats_list))
 pred_embedding = torch.tensor(feats_list, requires_grad=False).to(device)
-print("* feat_embed_size:", pred_embedding.size(1))
+print("# feat_embed_size:", pred_embedding.size(1))
 g_embed_size = len(feats_list[0])
 
 pred_x = []
@@ -235,12 +259,12 @@ data_size = len(pred_loader.dataset)
 model = CNN2(g_embed_size, g_conv_size, g_kernel_sizes, g_output_size, g_dropout_p, g_batchnorm, g_bias).to(device)
 checkpoint = torch.load(model_path, map_location=device)
 model.load_state_dict(checkpoint['model_state_dic'])
-print(checkpoint["best_acc"].item())
+print("# best_acc:", checkpoint["best_acc"].item())
 
 num_params = 0
 for params in model.parameters():
 	num_params += params.view(-1).size(0)
-print("\n# of parameters: {}".format(num_params))
+print("# of parameters: {}".format(num_params))
 
 
 model.eval()
