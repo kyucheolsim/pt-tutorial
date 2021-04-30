@@ -7,7 +7,7 @@ import torch.nn as nn
 import torch.optim as optim
 
 from torch.utils.data import TensorDataset, DataLoader
-from tqdm import tqdm
+#from tqdm import tqdm
 
 g_batch_size = 16
 g_epochs = 10
@@ -31,12 +31,12 @@ g_batchnorm_input = False
 g_learning_rate = 0.0001
 g_max_grad_norm = 0
 g_accuracy = 0.522
-#model_path = "seq_model_0.49.pt"
-model_path = "seq_model_s%s_e%s_l%s_h%s_b%d_%.3f.pt" % (g_seq_ext, g_embed_size, g_num_layers, g_hidden_size, g_bidirectional, g_accuracy)
-print("model_path:", model_path)
+#model_path = "seq_model_s%s_e%s_l%s_h%s_b%d_%.3f.pt" % (g_seq_ext, g_embed_size, g_num_layers, g_hidden_size, g_bidirectional, g_accuracy)
+model_path = "seq_model_s30_e60_l2_h100_b0_v0408_0.522.pt"
+print("# model_path:", model_path)
 
 device = torch.device('cuda' if torch.cuda.is_available() else 'cpu') 
-print("\n* device: ", device)
+print("# device: ", device)
 
 def get_min_label_count(label_list):
 	min_lc = 0
@@ -55,8 +55,8 @@ def get_min_label_count(label_list):
 def get_equal_set(label_list, sidx_list):
 	min_lc, label_dic = get_min_label_count(label_list)
 	check_list = [min_lc] * len(label_dic)
-	print("min_lc:", min_lc)
-	print("check_list:", check_list)
+	print("# min_lc:", min_lc)
+	print("# check_list:", check_list)
 	li_pair = list(zip(label_list, sidx_list))
 	random.seed(23)
 	random.shuffle(li_pair)
@@ -112,7 +112,7 @@ def load_pred_data(data_path, seq_ext=10, feat_size=0, eos="_EOS_"):
 				del(sidx_list[rm_from_idx:])
 				del(label_list[rm_from_idx:])
 		#print("idx:", last_idx, idx, len(sidx_list))
-	print("raw count:", len(label_list), len(sidx_list))
+	print("# raw count:", len(label_list), len(sidx_list))
 	#label_list, sidx_list = get_equal_set(label_list, sidx_list)
 	#print("equ count:", len(label_list), len(sidx_list))
 	return sidx_list, label_list, feats_list
@@ -232,9 +232,9 @@ class LSTMClassifier(nn.Module):
 
 
 sidx_list, label_list, feats_list = load_pred_data("./pred_set.txt", seq_ext=g_seq_ext, feat_size=g_embed_size)
-print("count(idx, label, feats):", len(sidx_list), len(label_list), len(feats_list))
+print("# count(idx, label, feats):", len(sidx_list), len(label_list), len(feats_list))
 pred_embedding = torch.tensor(feats_list, requires_grad=False).to(device)
-print("* feat_embed_size:", pred_embedding.size(1))
+print("# feat_embed_size:", pred_embedding.size(1))
 g_embed_size = len(feats_list[0])
 
 pred_x = []
@@ -254,12 +254,12 @@ model = LSTMClassifier(g_embed_size, g_hidden_size, g_output_size, g_num_layers,
 		g_batch_first, g_bidirectional, g_dropout_p, g_batchnorm, g_batchnorm_input).to(device)
 checkpoint = torch.load(model_path, map_location=device)
 model.load_state_dict(checkpoint['model_state_dic'])
-print(checkpoint["best_acc"].item())
+print("# best_acc:", checkpoint["best_acc"].item())
 
 num_params = 0
 for params in model.parameters():
 	num_params += params.view(-1).size(0)
-print("\n# of parameters: {}".format(num_params))
+print("# of parameters: {}".format(num_params))
 
 
 model.eval()
@@ -271,6 +271,6 @@ with torch.no_grad():
 		output_sm = output.softmax(-1).data.cpu().numpy()[0]
 		#print(output_sm)
 		_, pred = torch.max(output, dim=1)
-		print(label_list[i], pred.item(), output_sm[pred.item()], sep="\t")
+		print(label_list[i], pred.item(), "%.5f"%(output_sm[pred.item()]), sep="\t")
 
 
