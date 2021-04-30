@@ -260,6 +260,7 @@ loss_func = nn.CrossEntropyLoss()
 optimizer = optim.Adam(model.parameters(), lr=g_learning_rate)
 
 best_acc = 0.0
+best_epo = 0
 for e in range(g_epochs):
 	model.train()
 	train_size = len(train_loader.dataset)
@@ -293,7 +294,10 @@ for e in range(g_epochs):
 		print("* valid_acc: {:.5f}".format(valid_acc))
 		print("-", list(map(lambda x:round(x, 3), np.array(mc_correct)/np.array(mc_total))))
 		if valid_acc > best_acc:
+			best_val = list(map(lambda x:round(x, 3), np.array(mc_correct)/np.array(mc_total)))
 			print(list(zip(mc_correct, mc_total)))
+			best_epo = e
 			best_acc = valid_acc
 			torch.save({"best_acc": best_acc, "model_state_dic": model.state_dict()}, model_path)
-		print("* best_acc: {:.5f}".format(best_acc))
+		print("* best_epo: {}, best_acc: {:.5f}".format(best_epo, best_acc))
+		print("* best_val:", best_val)
